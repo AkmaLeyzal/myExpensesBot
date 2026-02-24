@@ -118,7 +118,8 @@ def _format_summary(expenses: list[dict], title: str) -> str:
 @bot.message_handler(commands=["today"])
 def cmd_today(message):
     bot.send_chat_action(message.chat.id, "typing")
-    expenses = sheets_helper.get_today_expenses()
+    user_id = message.from_user.id
+    expenses = sheets_helper.get_today_expenses(user_id)
     text = _format_summary(expenses, "Pengeluaran Hari Ini")
     bot.reply_to(message, text)
 
@@ -126,7 +127,8 @@ def cmd_today(message):
 @bot.message_handler(commands=["week"])
 def cmd_week(message):
     bot.send_chat_action(message.chat.id, "typing")
-    expenses = sheets_helper.get_week_expenses()
+    user_id = message.from_user.id
+    expenses = sheets_helper.get_week_expenses(user_id)
     text = _format_summary(expenses, "Pengeluaran Minggu Ini")
     bot.reply_to(message, text)
 
@@ -134,7 +136,8 @@ def cmd_week(message):
 @bot.message_handler(commands=["month"])
 def cmd_month(message):
     bot.send_chat_action(message.chat.id, "typing")
-    expenses = sheets_helper.get_month_expenses()
+    user_id = message.from_user.id
+    expenses = sheets_helper.get_month_expenses(user_id)
     text = _format_summary(expenses, "Pengeluaran Bulan Ini")
     bot.reply_to(message, text)
 
@@ -142,7 +145,8 @@ def cmd_month(message):
 @bot.message_handler(commands=["year"])
 def cmd_year(message):
     bot.send_chat_action(message.chat.id, "typing")
-    expenses = sheets_helper.get_year_expenses()
+    user_id = message.from_user.id
+    expenses = sheets_helper.get_year_expenses(user_id)
     text = _format_summary(expenses, "Pengeluaran Tahun Ini")
     bot.reply_to(message, text)
 
@@ -150,9 +154,10 @@ def cmd_year(message):
 @bot.message_handler(commands=["q1", "q2", "q3", "q4"])
 def cmd_quarter(message):
     bot.send_chat_action(message.chat.id, "typing")
+    user_id = message.from_user.id
     quarter_num = int(message.text.strip("/qQ"))
     quarter_labels = {1: "Q1 (Jan-Mar)", 2: "Q2 (Apr-Jun)", 3: "Q3 (Jul-Sep)", 4: "Q4 (Okt-Des)"}
-    expenses = sheets_helper.get_quarter_expenses(quarter_num)
+    expenses = sheets_helper.get_quarter_expenses(quarter_num, user_id)
     label = quarter_labels.get(quarter_num, f"Q{quarter_num}")
     text = _format_summary(expenses, f"Pengeluaran {label}")
     bot.reply_to(message, text)
@@ -161,7 +166,9 @@ def cmd_quarter(message):
 @bot.message_handler(commands=["report"])
 def cmd_report(message):
     bot.send_chat_action(message.chat.id, "typing")
-    expenses = sheets_helper.get_month_expenses()
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name or "User"
+    expenses = sheets_helper.get_month_expenses(user_id)
 
     from datetime import datetime
     now = datetime.now()
@@ -174,11 +181,12 @@ def cmd_report(message):
     bot.send_chat_action(message.chat.id, "upload_document")
 
     try:
-        filepath = generate_report(expenses, f"Periode: {period}")
+        filepath = generate_report(expenses, f"Periode: {period} — {user_name}")
         total = sum(e["price"] for e in expenses)
 
         caption = (
             f"📄 <b>Laporan Pengeluaran — {period}</b>\n"
+            f"👤 {user_name}\n"
             f"💳 Total: <b>{format_rupiah(total)}</b> ({len(expenses)} transaksi)"
         )
 
@@ -189,7 +197,7 @@ def cmd_report(message):
                 caption=caption,
                 parse_mode="HTML",
                 reply_to_message_id=message.message_id,
-                visible_file_name=f"Laporan_{now.strftime('%Y_%m')}.pdf",
+                visible_file_name=f"Laporan_{user_name}_{now.strftime('%Y_%m')}.pdf",
             )
 
         os.remove(filepath)
@@ -201,8 +209,9 @@ def cmd_report(message):
 @bot.message_handler(commands=["delete"])
 def cmd_delete(message):
     bot.send_chat_action(message.chat.id, "typing")
+    user_id = message.from_user.id
 
-    deleted = sheets_helper.delete_last_entry()
+    deleted = sheets_helper.delete_last_entry(user_id)
     if deleted:
         text = (
             "🗑 <b>Entri terakhir dihapus:</b>\n\n"
@@ -234,8 +243,13 @@ def handle_expense(message):
         )
         return
 
+    user_id = message.from_user.id
+    user_name = message.from_user.first_name or "User"
+
     try:
         result = sheets_helper.add_expense(
+            user_id=user_id,
+            user_name=user_name,
             price=parsed["price"],
             item=parsed["item"],
             description=parsed["description"],
@@ -246,13 +260,14 @@ def handle_expense(message):
 
         text = (
             "✅ <b>Pengeluaran tercatat!</b>\n\n"
+            f"  👤 {user_name}\n"
             f"  💰 {format_rupiah(parsed['price'])}\n"
             f"  🏷 {parsed['item']}{desc_line}\n"
             f"  {parsed['category']}\n"
             f"  📅 {result['timestamp']}\n"
         )
 
-        today_expenses = sheets_helper.get_today_expenses()
+        today_expenses = sheets_helper.get_today_expenses(user_id)
         today_total = sum(e["price"] for e in today_expenses)
 
         text += f"\n📊 Total hari ini: <b>{format_rupiah(today_total)}</b> ({len(today_expenses)} transaksi)"
